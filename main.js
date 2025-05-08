@@ -5,6 +5,14 @@ let gameOver = false;
 let score = 0;
 let scoreElement;
 
+// Material definitions (using Phong for consistency with existing lighting)
+const yellowMat = new THREE.MeshPhongMaterial({color: 0xFFCC00});
+const orangeMat = new THREE.MeshPhongMaterial({color:0xF58216});
+const lightGreenMat = new THREE.MeshPhongMaterial({color: 0xA0FFA0}); // For pipe body
+const darkGreenMat = new THREE.MeshPhongMaterial({color: 0x20BB20});  // For pipe caps
+const blackMat = new THREE.MeshPhongMaterial({color: 0x111111}); // For pupils and pipe openings
+const whiteMat = new THREE.MeshPhongMaterial({color: 0xFFFFFF});   // For eyes
+
 function init() {
     // Scene
     scene = new THREE.Scene();
@@ -22,12 +30,12 @@ function init() {
     document.body.appendChild(renderer.domElement);
 
     // Create Local Bird
-    localBirdMesh = createBird(true); // Pass true for local player
+    localBirdMesh = createBird();
     scene.add(localBirdMesh);
     localBirdMesh.position.x = -2; // Start bird a bit to the left
 
     // Create a dummy remote player bird
-    const remoteBird = createBird(false); // Pass false for remote player
+    const remoteBird = createBird(); // Pass false for remote player
     remoteBird.position.x = -2.5; // Slightly different starting position
     remoteBird.position.y = 1;    // Different y
     remotePlayers["dummy_player_1"] = { mesh: remoteBird, velocityY: 0 }; // Store it
@@ -64,11 +72,14 @@ function animate() {
     requestAnimationFrame(animate);
 
     if (!gameStarted || gameOver) {
-        // Simple wing flap animation even when game not started or over
         const time = Date.now() * 0.01;
-        if (localBirdMesh) { // Ensure localBirdMesh is defined
-            localBirdMesh.children[0].rotation.z = Math.PI / 4 + Math.sin(time) * 0.3; // Left Wing
-            localBirdMesh.children[1].rotation.z = -Math.PI / 4 - Math.sin(time) * 0.3; // Right Wing
+        if (localBirdMesh) {
+            const lWing = localBirdMesh.getObjectByName("leftWing");
+            const rWing = localBirdMesh.getObjectByName("rightWing");
+            if (lWing && rWing) {
+                lWing.rotation.z = Math.PI / 4 + Math.sin(time) * 0.5; 
+                rWing.rotation.z = -Math.PI / 4 - Math.sin(time) * 0.5;
+            }
         }
         renderer.render(scene, camera);
         return;
@@ -79,9 +90,15 @@ function animate() {
     localBirdMesh.position.y += birdVelocityY;
 
     // Simple wing flap animation (for local player)
-    const time = Date.now() * 0.01;
-    localBirdMesh.children[0].rotation.z = Math.PI / 4 + Math.sin(time) * 0.3; // Left Wing
-    localBirdMesh.children[1].rotation.z = -Math.PI / 4 - Math.sin(time) * 0.3; // Right Wing
+    const time = Date.now() * 0.02; // Faster flap for active game
+    if (localBirdMesh) {
+        const lWing = localBirdMesh.getObjectByName("leftWing");
+        const rWing = localBirdMesh.getObjectByName("rightWing");
+        if (lWing && rWing) {
+            lWing.rotation.z = Math.PI / 4 + Math.sin(time) * 0.7; 
+            rWing.rotation.z = -Math.PI / 4 - Math.sin(time) * 0.7;
+        }
+    }
 
     // Animate remote players' wings
     Object.values(remotePlayers).forEach(player => {
@@ -138,100 +155,157 @@ function animate() {
 }
 
 // Bird
-let localBirdMesh; // Renamed from birdMesh
-let remotePlayers = {}; // To store remote players' birds
+let localBirdMesh; // This will be a THREE.Group
+let remotePlayers = {}; // Multiplayer temporarily removed in previous steps, ensure it is still out
 
-function createBird(isLocal = true) {
-    const birdGeometry = new THREE.SphereGeometry(0.2, 32, 32); // Body
-    const birdColor = isLocal ? 0xffff00 : 0x0000ff; // Yellow for local, Blue for remote
-    const birdMaterial = new THREE.MeshPhongMaterial({ color: birdColor });
-    const newBirdMesh = new THREE.Mesh(birdGeometry, birdMaterial);
+function createBird() {
+    localBirdMesh = new THREE.Group(); // Changed from Mesh to Group
 
-    // Wings
-    const wingGeometry = new THREE.BoxGeometry(0.1, 0.4, 0.05);
-    const wingMaterial = new THREE.MeshPhongMaterial({ color: 0xffa500 }); // Orange for all wings
+    const bodyRadius = 0.2;
+    // Body
+    const birdBodyGeometry = new THREE.SphereGeometry(bodyRadius, 16, 16); // Fewer segments for performance
+    const birdBody = new THREE.Mesh(birdBodyGeometry, yellowMat);
+    localBirdMesh.add(birdBody);
 
-    const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
-    leftWing.position.set(-0.25, 0, 0.1);
-    leftWing.rotation.z = Math.PI / 4;
-    newBirdMesh.add(leftWing);
-
-    const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
-    rightWing.position.set(0.25, 0, 0.1);
-    rightWing.rotation.z = -Math.PI / 4;
-    newBirdMesh.add(rightWing);
+    // Beak
+    const beakGeometry = new THREE.ConeGeometry(0.05, 0.15, 8);
+    const beak = new THREE.Mesh(beakGeometry, orangeMat);
+    beak.position.set(0, 0, bodyRadius + 0.05); // Positioned at the front of the body
+    beak.rotation.x = Math.PI / 2; // Pointing forwards
+    localBirdMesh.add(beak);
 
     // Eyes
-    const eyeGeometry = new THREE.SphereGeometry(0.05, 16, 16);
-    const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 }); // Black
+    const eyeRadius = 0.05;
+    const pupilRadius = 0.025;
+    for (let i = -1; i <= 1; i += 2) { // For left and right eyes
+        const eyeGroup = new THREE.Group();
+        const eyeScleraGeometry = new THREE.SphereGeometry(eyeRadius, 8, 8);
+        const eyeSclera = new THREE.Mesh(eyeScleraGeometry, whiteMat);
+        eyeGroup.add(eyeSclera);
 
-    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    leftEye.position.set(-0.1, 0.1, 0.15);
-    newBirdMesh.add(leftEye);
+        const pupilGeometry = new THREE.SphereGeometry(pupilRadius, 8, 8);
+        const pupil = new THREE.Mesh(pupilGeometry, blackMat);
+        pupil.position.z = eyeRadius * 0.6; // Slightly forward on the sclera
+        eyeSclera.add(pupil);
 
-    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    rightEye.position.set(0.1, 0.1, 0.15);
-    newBirdMesh.add(rightEye);
+        eyeGroup.position.set(i * bodyRadius * 0.6, bodyRadius * 0.3, bodyRadius * 0.7);
+        localBirdMesh.add(eyeGroup);
+    }
 
-    newBirdMesh.position.y = 0.5; // Initial position
+    // Wings
+    const wingWidth = 0.08;
+    const wingHeight = bodyRadius * 1.8;
+    const wingDepth = bodyRadius * 0.8;
+    const wingGeometry = new THREE.BoxGeometry(wingWidth, wingHeight, wingDepth);
+    // const wingMaterial = orangeMat.clone(); // Using a slightly different color for wings
+    // wingMaterial.color.setHex(0xFAA500);
 
-    // Lights are already added in init, no need to re-add for every bird if they are global
-    // However, ensure they are added if not already
-    if (!scene.getObjectByName("ambientLight")) {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        ambientLight.name = "ambientLight";
+    const leftWing = new THREE.Mesh(wingGeometry, orangeMat); // Using orangeMat for wings
+    leftWing.name = "leftWing";
+    leftWing.position.set(-bodyRadius * 0.8, 0, -wingDepth * 0.2);
+    leftWing.rotation.y = Math.PI / 12;
+    leftWing.rotation.z = Math.PI / 4; // Initial angle
+    localBirdMesh.add(leftWing);
+
+    const rightWing = new THREE.Mesh(wingGeometry, orangeMat);
+    rightWing.name = "rightWing";
+    rightWing.position.set(bodyRadius * 0.8, 0, -wingDepth * 0.2);
+    rightWing.rotation.y = -Math.PI / 12;
+    rightWing.rotation.z = -Math.PI / 4; // Initial angle
+    localBirdMesh.add(rightWing);
+
+    // Add existing lights if they were removed by previous rejected changes
+    // This assumes lights are global to the scene and added in init()
+    // Ensure ambient and point lights are in the scene (they should be from original setup)
+    if (!scene.getObjectByName("ambientLightGlobal")) {
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        ambientLight.name = "ambientLightGlobal";
         scene.add(ambientLight);
     }
-    if (!scene.getObjectByName("pointLight")) {
-        const pointLight = new THREE.PointLight(0xffffff, 0.8);
-        pointLight.name = "pointLight";
+    if (!scene.getObjectByName("pointLightGlobal")) {
+        const pointLight = new THREE.PointLight(0xffffff, 0.8, 100);
+        pointLight.name = "pointLightGlobal";
         pointLight.position.set(5, 5, 5);
         scene.add(pointLight);
     }
 
-    return newBirdMesh;
+    // localBirdMesh will be positioned by the game logic (e.g., in resetGameCore)
+    return localBirdMesh; // Return the group
 }
 
 // Pipes
 let pipes;
-const pipeGap = 3.8; // Increased gap slightly
-const pipeWidth = 0.8; // Made pipes a bit wider
-const pipeHeight = 4; // Made pipes taller
-const pipeTopWidth = 0.9;
-const pipeTopHeight = 0.4;
-const pipeSpeed = 0.035;
-const pipeSpawnX = 7; // X position where new pipes spawn
-const pipeSpacing = 4; // Spacing between pipe pairs
-const maxPipes = 4; // Maximum number of pipe pairs on screen
+// Existing pipe dimension constants - these will primarily define gameplay space
+const pipeGap = 3.8; // Gap between upper and lower pipes
+const pipeWidth = 0.8; // Overall width for collision and bird passage
+const pipeHeight = 4; // Max height of one side of the pipe structure for gameplay
+const pipeTopWidth = 0.9; // Width of the cap, slightly wider than body
+const pipeTopHeight = 0.4; // Height of the cap
+
+const pipeSpeed = 0.035; // Ensure this matches user's last adjustment if any
+const pipeSpawnX = 7; 
+const pipeSpacing = 4; 
+const maxPipes = 4; 
 
 function createPipe() {
-    const pipeMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 }); // Green
+    const pipePair = { upper: new THREE.Group(), lower: new THREE.Group(), passed: false };
 
-    // Lower Pipe
-    const lowerPipeGeometry = new THREE.CylinderGeometry(pipeWidth / 2, pipeWidth / 2, pipeHeight, 32);
-    const lowerPipeMesh = new THREE.Mesh(lowerPipeGeometry, pipeMaterial);
+    // Define dimensions for the visual parts based on gameplay constants
+    const shaftRadius = pipeWidth / 2;
+    const shaftHeight = pipeHeight; // Main visible part of the pipe shaft
 
-    const lowerPipeTopGeometry = new THREE.CylinderGeometry(pipeTopWidth / 2, pipeTopWidth / 2, pipeTopHeight, 32);
-    const lowerPipeTopMesh = new THREE.Mesh(lowerPipeTopGeometry, pipeMaterial);
-    lowerPipeTopMesh.position.y = pipeHeight / 2 + pipeTopHeight / 2;
-    lowerPipeMesh.add(lowerPipeTopMesh);
+    const capRadius = pipeTopWidth / 2;
+    const capHeight = pipeTopHeight;
 
-    // Upper Pipe
-    const upperPipeGeometry = new THREE.CylinderGeometry(pipeWidth / 2, pipeWidth / 2, pipeHeight, 32);
-    const upperPipeMesh = new THREE.Mesh(upperPipeGeometry, pipeMaterial);
+    const openingRadius = shaftRadius * 0.8; // For the black inner part
 
-    const upperPipeTopGeometry = new THREE.CylinderGeometry(pipeTopWidth / 2, pipeTopWidth / 2, pipeTopHeight, 32);
-    const upperPipeTopMesh = new THREE.Mesh(upperPipeTopGeometry, pipeMaterial);
-    upperPipeTopMesh.position.y = -pipeHeight / 2 - pipeTopHeight / 2;
-    upperPipeMesh.add(upperPipeTopMesh);
-    upperPipeMesh.rotation.x = Math.PI; // Rotate to face downwards
+    // Lower Pipe Assembly
+    const lowerShaftGeom = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 16, 1);
+    const lowerShaftMesh = new THREE.Mesh(lowerShaftGeom, lightGreenMat);
+    // lowerShaftMesh.position.y = shaftHeight / 2; // Origin at center, so position relative to group
+    pipePair.lower.add(lowerShaftMesh);
 
-    // Position pipes
-    const yOffset = (Math.random() - 0.5) * (pipeHeight - pipeGap - pipeTopHeight * 1.5); // Adjusted yOffset calculation
-    lowerPipeMesh.position.set(pipeSpawnX, -pipeGap / 2 - pipeHeight / 2 + yOffset, 0);
-    upperPipeMesh.position.set(pipeSpawnX, pipeGap / 2 + pipeHeight / 2 + yOffset, 0);
+    const lowerCapGeom = new THREE.CylinderGeometry(capRadius, capRadius, capHeight, 16, 1);
+    const lowerCapMesh = new THREE.Mesh(lowerCapGeom, darkGreenMat);
+    lowerCapMesh.position.y = shaftHeight / 2 + capHeight / 2; // Position cap on top of shaft
+    pipePair.lower.add(lowerCapMesh);
 
-    return { upper: upperPipeMesh, lower: lowerPipeMesh, passed: false };
+    const lowerOpeningGeom = new THREE.CylinderGeometry(openingRadius, openingRadius, capHeight * 1.1, 16, 1); // Slightly taller to ensure visibility
+    const lowerOpeningMesh = new THREE.Mesh(lowerOpeningGeom, blackMat);
+    lowerOpeningMesh.position.y = shaftHeight / 2 + capHeight / 2; // Same position as cap
+    pipePair.lower.add(lowerOpeningMesh);
+
+    // Upper Pipe Assembly (similar, but rotated)
+    const upperShaftGeom = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 16, 1);
+    const upperShaftMesh = new THREE.Mesh(upperShaftGeom, lightGreenMat);
+    // upperShaftMesh.position.y = -shaftHeight / 2;
+    pipePair.upper.add(upperShaftMesh);
+
+    const upperCapGeom = new THREE.CylinderGeometry(capRadius, capRadius, capHeight, 16, 1);
+    const upperCapMesh = new THREE.Mesh(upperCapGeom, darkGreenMat);
+    upperCapMesh.position.y = -(shaftHeight / 2 + capHeight / 2); // Position cap below shaft (for upper pipe)
+    pipePair.upper.add(upperCapMesh);
+
+    const upperOpeningGeom = new THREE.CylinderGeometry(openingRadius, openingRadius, capHeight * 1.1, 16, 1);
+    const upperOpeningMesh = new THREE.Mesh(upperOpeningGeom, blackMat);
+    upperOpeningMesh.position.y = -(shaftHeight / 2 + capHeight / 2);
+    pipePair.upper.add(upperOpeningMesh);
+
+    // Position the pipe groups (upper and lower assemblies)
+    // The yOffset calculation is based on the total height of one pipe assembly (shaft + cap)
+    const totalVisualPipeHeight = shaftHeight + capHeight; 
+    // yOffset determines the vertical position of the center of the gap
+    // The random range should allow the gap to shift, but ensure pipes are connected to top/bottom conceptually
+    const yOffsetRange = shaftHeight * 0.6; // Allow gap to move by a portion of shaft height
+    const yOffset = (Math.random() - 0.5) * yOffsetRange;
+
+    pipePair.lower.position.set(pipeSpawnX, -pipeGap / 2 - totalVisualPipeHeight / 2 + yOffset, 0);
+    pipePair.upper.position.set(pipeSpawnX, pipeGap / 2 + totalVisualPipeHeight / 2 + yOffset, 0);
+    
+    // The actual meshes (like upperShaftMesh) are positioned at (0,0,0) relative to their parent group (pipePair.upper/lower)
+    // The parent groups (pipePair.upper/lower) are then positioned in the world.
+
+    return pipePair;
 }
 
 // Game Mechanics
@@ -282,26 +356,23 @@ function onInput(event) {
 
 function checkCollisions() {
     const birdBox = new THREE.Box3().setFromObject(localBirdMesh);
+    const birdBodyRadius = 0.2; // Radius of the bird's spherical body
 
     // Screen boundaries collision (top and bottom)
-    if (localBirdMesh.position.y + 0.2 > camera.Screentop || localBirdMesh.position.y - 0.2 < camera.ScreenBottom ) { 
-        // camera.Screentop and camera.ScreenBottom are not properties of camera.
-        // We need to calculate the world coordinates of the top/bottom of the screen
-        const frustum = new THREE.Frustum();
-        const matrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-        frustum.setFromProjectionMatrix(matrix);
-        
-        // Get view height at bird's x position
-        const distance = camera.position.z - localBirdMesh.position.z;
-        const vFOV = camera.fov * Math.PI / 180;
-        const visibleHeight = 2 * Math.tan(vFOV / 2) * distance;
-        const screenTopY = visibleHeight / 2;
-        const screenBottomY = -visibleHeight / 2;
+    // We need to calculate the world coordinates of the top/bottom of the screen dynamically
+    const distance = camera.position.z - localBirdMesh.position.z; // localBirdMesh.position.z is 0
+    const vFOV = camera.fov * Math.PI / 180; // Convert fov to radians
+    const visibleHeight = 2 * Math.tan(vFOV / 2) * distance;
+    const screenTopY = visibleHeight / 2;
+    const screenBottomY = -visibleHeight / 2;
 
-        if (localBirdMesh.position.y + 0.2 > screenTopY || localBirdMesh.position.y - 0.2 < screenBottomY) {
-             setGameOver();
-             return;
-        }
+    // Condition for the *whole bird* being out of the viewport:
+    // 1. Bird's bottom edge is above the screen's top edge OR
+    // 2. Bird's top edge is below the screen's bottom edge
+    if ((localBirdMesh.position.y - birdBodyRadius > screenTopY) || 
+        (localBirdMesh.position.y + birdBodyRadius < screenBottomY)) {
+         setGameOver();
+         return;
     }
 
     // Pipe collision
