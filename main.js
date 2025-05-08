@@ -30,16 +30,9 @@ function init() {
     document.body.appendChild(renderer.domElement);
 
     // Create Local Bird
-    localBirdMesh = createBird();
+    localBirdMesh = createBird(); // No longer needs isLocalPlayer argument
     scene.add(localBirdMesh);
-    localBirdMesh.position.x = -2; // Start bird a bit to the left
-
-    // Create a dummy remote player bird
-    const remoteBird = createBird(); // Pass false for remote player
-    remoteBird.position.x = -2.5; // Slightly different starting position
-    remoteBird.position.y = 1;    // Different y
-    remotePlayers["dummy_player_1"] = { mesh: remoteBird, velocityY: 0 }; // Store it
-    scene.add(remoteBird);
+    // Initial position set in resetGameCore
 
     // Create Pipes
     pipes = [];
@@ -85,12 +78,12 @@ function animate() {
         return;
     }
 
-    // Bird physics (for local player)
+    // Local Bird physics
     birdVelocityY += gravity;
     localBirdMesh.position.y += birdVelocityY;
 
-    // Simple wing flap animation (for local player)
-    const time = Date.now() * 0.02; // Faster flap for active game
+    // Local Bird Wing flap animation
+    const time = Date.now() * 0.02; 
     if (localBirdMesh) {
         const lWing = localBirdMesh.getObjectByName("leftWing");
         const rWing = localBirdMesh.getObjectByName("rightWing");
@@ -99,16 +92,6 @@ function animate() {
             rWing.rotation.z = -Math.PI / 4 - Math.sin(time) * 0.7;
         }
     }
-
-    // Animate remote players' wings
-    Object.values(remotePlayers).forEach(player => {
-        if (player.mesh) {
-            const remoteTime = Date.now() * 0.008; // Slightly different speed for variety
-            player.mesh.children[0].rotation.z = Math.PI / 4 + Math.sin(remoteTime) * 0.3;
-            player.mesh.children[1].rotation.z = -Math.PI / 4 - Math.sin(remoteTime) * 0.3;
-            // In a real multiplayer game, you'd update player.mesh.position based on network data
-        }
-    });
 
     // Move Pipes
     pipes.forEach(pipePair => {
@@ -155,24 +138,25 @@ function animate() {
 }
 
 // Bird
-let localBirdMesh; // This will be a THREE.Group
-let remotePlayers = {}; // Multiplayer temporarily removed in previous steps, ensure it is still out
+let localBirdMesh; // This is a THREE.Group
 
-function createBird() {
-    localBirdMesh = new THREE.Group(); // Changed from Mesh to Group
+function createBird() { // Removed isLocalPlayer argument
+    const birdGroup = new THREE.Group(); 
 
     const bodyRadius = 0.2;
+    const bodyMaterial = yellowMat; // Defaults to local player color
+
     // Body
-    const birdBodyGeometry = new THREE.SphereGeometry(bodyRadius, 16, 16); // Fewer segments for performance
-    const birdBody = new THREE.Mesh(birdBodyGeometry, yellowMat);
-    localBirdMesh.add(birdBody);
+    const birdBodyGeometry = new THREE.SphereGeometry(bodyRadius, 16, 16);
+    const birdBody = new THREE.Mesh(birdBodyGeometry, bodyMaterial);
+    birdGroup.add(birdBody);
 
     // Beak
     const beakGeometry = new THREE.ConeGeometry(0.05, 0.15, 8);
     const beak = new THREE.Mesh(beakGeometry, orangeMat);
     beak.position.set(0, 0, bodyRadius + 0.05); // Positioned at the front of the body
     beak.rotation.x = Math.PI / 2; // Pointing forwards
-    localBirdMesh.add(beak);
+    birdGroup.add(beak);
 
     // Eyes
     const eyeRadius = 0.05;
@@ -189,7 +173,7 @@ function createBird() {
         eyeSclera.add(pupil);
 
         eyeGroup.position.set(i * bodyRadius * 0.6, bodyRadius * 0.3, bodyRadius * 0.7);
-        localBirdMesh.add(eyeGroup);
+        birdGroup.add(eyeGroup);
     }
 
     // Wings
@@ -205,14 +189,14 @@ function createBird() {
     leftWing.position.set(-bodyRadius * 0.8, 0, -wingDepth * 0.2);
     leftWing.rotation.y = Math.PI / 12;
     leftWing.rotation.z = Math.PI / 4; // Initial angle
-    localBirdMesh.add(leftWing);
+    birdGroup.add(leftWing);
 
     const rightWing = new THREE.Mesh(wingGeometry, orangeMat);
     rightWing.name = "rightWing";
     rightWing.position.set(bodyRadius * 0.8, 0, -wingDepth * 0.2);
     rightWing.rotation.y = -Math.PI / 12;
     rightWing.rotation.z = -Math.PI / 4; // Initial angle
-    localBirdMesh.add(rightWing);
+    birdGroup.add(rightWing);
 
     // Add existing lights if they were removed by previous rejected changes
     // This assumes lights are global to the scene and added in init()
@@ -230,7 +214,7 @@ function createBird() {
     }
 
     // localBirdMesh will be positioned by the game logic (e.g., in resetGameCore)
-    return localBirdMesh; // Return the group
+    return birdGroup; // Return the created bird group
 }
 
 // Pipes
@@ -309,8 +293,8 @@ function createPipe() {
 }
 
 // Game Mechanics
-const gravity = -0.005; // Adjusted gravity
-const flapStrength = 0.10; // Adjusted flap strength
+const gravity = -0.004; // Adjusted gravity
+const flapStrength = 0.09; // Adjusted flap strength
 let birdVelocityY = 0;
 
 function flap() {
@@ -392,13 +376,6 @@ function setGameOver() {
     gameOver = true;
     console.log("Game Over! Final Score:", score);
 
-    // Optionally hide remote players on game over for the local player
-    Object.values(remotePlayers).forEach(player => {
-        if (player.mesh) {
-            // player.mesh.visible = false; // Example: hide them
-        }
-    });
-
     // Show game over message
     const messageElement = document.createElement('div');
     messageElement.id = 'gameOverMessage';
@@ -417,24 +394,12 @@ function setGameOver() {
 // Renamed from resetGame and modified
 function resetGameCore() {
     console.log("Resetting game elements...");
-    // Remove game over message
     const gameOverMessageElement = document.getElementById('gameOverMessage');
-    if (gameOverMessageElement) {
-        gameOverMessageElement.remove();
-    }
+    if (gameOverMessageElement) gameOverMessageElement.remove();
 
-    // Reset bird
+    // Reset local bird
     localBirdMesh.position.set(-2, 0.5, 0);
     birdVelocityY = 0;
-
-    // Reset/hide remote players (or reposition them)
-    Object.values(remotePlayers).forEach(player => {
-        if (player.mesh) {
-            player.mesh.position.set(-2.5, 1, 0); // Reset their position too
-            player.velocityY = 0;
-            player.mesh.visible = true; // Make sure they are visible on reset
-        }
-    });
 
     // Reset pipes
     pipes.forEach(pipePair => {
